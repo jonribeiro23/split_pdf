@@ -2,6 +2,7 @@ from PyPDF2 import PdfFileWriter, PdfFileReader
 from tqdm import tqdm
 
 # https://towardsdatascience.com/extracting-text-from-scanned-pdf-using-pytesseract-open-cv-cd670ee38052
+# https://www.thepythoncode.com/article/extract-text-from-images-or-scanned-pdf-python
 
 inputpdf = PdfFileReader(open("bb0121_edital.pdf", "rb"))
 
