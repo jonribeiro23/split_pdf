@@ -764,3 +764,7 @@ if __name__ == '__main__':
         ocr_folder(
             input_folder=args['input_path'], recursive=args['recursive'], search_str=args['search_str'] if 'search_str' in (args.keys()) else None, pages=args['pages'], action=args['action'], generate_output=args['generate_output']
         )
+        
+        
+# $ python pdf_ocr.py -s "BERT" -a Highlight -i example-image-containing-text.jpg
+# $ python pdf_ocr.py -s "BERT" -i image.pdf -o output.pdf --generate-output -a "Highlight"
