@@ -13,6 +13,7 @@ import filetype
 
 # Path Of The Tesseract OCR engine
 TESSERACT_PATH = "C:/Program Files/Tesseract-OCR/tesseract.exe"
+global NOME_CLIENTE
 # Include tesseract executable
 pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
 
@@ -119,6 +120,8 @@ def generate_ss_text(ss_details):
     parse_text = []
     word_list = []
     last_word = ''
+    file = open("test.txt", "w") 
+    
     # Loop through the captured text of the entire page
     for word in ss_details['text']:
         # If the word captured is not empty
@@ -126,15 +129,19 @@ def generate_ss_text(ss_details):
             # Add it to the line word list
             word_list.append(word)
             last_word = word
+            file.write(word)
         if (last_word != '' and word == '') or (word == ss_details['text'][-1]):
             parse_text.append(word_list)
             word_list = []
+    
+    file.close() 
     return parse_text
 
 def search_for_text(ss_details, search_str):
     """Search for the search string within the image content"""
     # Find all matches within one page
     results = re.findall(search_str, ss_details['text'], re.IGNORECASE)
+    # results = re.findall(r"(?<=We)(.*?)(?=new)/gm", ss_details['text'], re.IGNORECASE)
     # In case multiple matches within one page
     for result in results:
         yield result
@@ -212,6 +219,8 @@ def ocr_img(
     ss_readable_items = 0
     # Total matches found
     ss_matches = 0
+    client_name = ''
+    
     for seq in range(len(details['text'])):
         # Consider only text fields with confidence score > 30 (text is readable)
         if float(details['conf'][seq]) > 30.0:
@@ -246,7 +255,17 @@ def ocr_img(
                         thickness = -1
                         boxed_img = cv2.rectangle(
                             img, start_point, end_point, color, thickness)
-                            
+
+    for seq in range(len(details['text'])):
+        if details['text'][seq] == 'eu':
+            index = seq
+            for i in range(len(details['text'])):
+                if len(details['text'][i]) < seq and details['text'][i + index].isupper():
+                    client_name += f"{details['text'][i + index]} "
+                if details['text'][i + index] in ['nacionandade', 'nacionalidade']:
+                    break
+            break
+
     if ss_readable_items > 0 and highlight_readable_text and not (ss_matches > 0 and action in ("Highlight", "Redact")):
         highlighted_img = boxed_img.copy()
     # Highlight found matches of the search string
@@ -274,10 +293,10 @@ def ocr_img(
             "File": input_file, "Total readable words": ss_readable_items, "Total matches": ss_matches, "Confidence score": ss_confidence
         }
         # Printing Summary
-        print("## Summary ########################################################")
-        print("\n".join("{}:{}".format(i, j) for i, j in summary.items()))
-        print("###################################################################")
-    return highlighted_img, ss_readable_items, ss_matches, ss_confidence, output_data
+        # print("## Summary ########################################################")
+        # print("\n".join("{}:{}".format(i, j) for i, j in summary.items()))
+        # print("###################################################################")
+    return highlighted_img, ss_readable_items, ss_matches, ss_confidence, output_data, client_name
     # pass image into pytesseract module
     # pytesseract is trained in many languages
     #config_param = r'--oem 3 --psm 6'
@@ -360,7 +379,7 @@ def ocr_file(**kwargs):
         # We apply Erosion on binary images.
         #kernel = np.ones((2,2) , np.uint8)
         #img = cv2.erode(img,kernel,iterations=1)
-        upd_np_array, pg_readable_items, pg_matches, pg_total_confidence, pg_output_data \
+        upd_np_array, pg_readable_items, pg_matches, pg_total_confidence, pg_output_data, client_name \
             = ocr_img(img=img, input_file=None, search_str=search_str, highlight_readable_text=highlight_readable_text  # False
                       , action=action  # 'Redact'
                       , show_comparison=show_comparison  # True
@@ -384,7 +403,6 @@ def ocr_file(**kwargs):
             fmt = fitz.PaperRect("a4-1")
         else:
             fmt = fitz.PaperRect("a4")
-
         #pno = -1 -> Insert after last page
         pageo = pdfOut.newPage(pno = -1, width = fmt.width, height = fmt.height)
         """
@@ -401,17 +419,17 @@ def ocr_file(**kwargs):
         "File": input_file, "Total pages": pdfIn.pageCount, 
         "Processed pages": dfResult['page'].count(), "Total readable words": dfResult['page_readable_items'].sum(), 
         "Total matches": dfResult['page_matches'].sum(), "Confidence score": dfResult['page_total_confidence'].mean(), 
-        "Output file": output_file, "Content file": content_file
+        "Output file": client_name, "Content file": content_file, "Nome": client_name
     }
     # Printing Summary
-    print("## Summary ########################################################")
-    print("\n".join("{}:{}".format(i, j) for i, j in summary.items()))
-    print("\nPages Statistics:")
-    print(dfResult, sep='\n')
-    print("###################################################################")
+    # print("## Summary ########################################################")
+    # print("\n".join("{}:{}".format(i, j) for i, j in summary.items()))
+    # print("\nPages Statistics:")
+    # print(dfResult, sep='\n')
+    # print("###################################################################")
     pdfIn.close()
     if output_file:
-        pdfOut.save(output_file)
+        pdfOut.save(f"{client_name}.pdf")
     pdfOut.close()
 
 def image_to_byte_array(image: Image):
@@ -422,255 +440,6 @@ def image_to_byte_array(image: Image):
     image.save(imgByteArr, format=image.format if image.format else 'JPEG')
     imgByteArr = imgByteArr.getvalue()
     return imgByteArr
-
-def ocr_file(**kwargs):
-    """Opens the input PDF File.
-    Opens a memory buffer for storing the output PDF file.
-    Creates a DataFrame for storing pages statistics
-    Iterates throughout the chosen pages of the input PDF file
-    Grabs a screen-shot of the selected PDF page.
-    Converts the screen-shot pix to a numpy array
-    Scans the grabbed screen-shot.
-    Collects the statistics of the screen-shot(page).
-    Saves the content of the screen-shot(page).
-    Adds the updated screen-shot (Highlighted, Redacted) to the output file.
-    Saves the whole content of the PDF file.
-    Saves the output PDF file if required.
-    Prints a summary to the console."""
-    input_file = kwargs.get('input_file')
-    output_file = kwargs.get('output_file')
-    search_str = kwargs.get('search_str')
-    pages = kwargs.get('pages')
-    highlight_readable_text = kwargs.get('highlight_readable_text')
-    action = kwargs.get('action')
-    show_comparison = kwargs.get('show_comparison')
-    generate_output = kwargs.get('generate_output')
-    # Opens the input PDF file
-    pdfIn = fitz.open(input_file)
-    # Opens a memory buffer for storing the output PDF file.
-    pdfOut = fitz.open()
-    # Creates an empty DataFrame for storing pages statistics
-    dfResult = pd.DataFrame(
-        columns=['page', 'page_readable_items', 'page_matches', 'page_total_confidence'])
-    # Creates an empty DataFrame for storing file content
-    if generate_output:
-        pdfContent = pd.DataFrame(columns=['page', 'line_id', 'line'])
-    # Iterate throughout the pages of the input file
-    for pg in range(pdfIn.pageCount):
-        if str(pages) != str(None):
-            if str(pg) not in str(pages):
-                continue
-        # Select a page
-        page = pdfIn[pg]
-        # Rotation angle
-        rotate = int(0)
-        # PDF Page is converted into a whole picture 1056*816 and then for each picture a screenshot is taken.
-        # zoom = 1.33333333 -----> Image size = 1056*816
-        # zoom = 2 ---> 2 * Default Resolution (text is clear, image text is hard to read)    = filesize small / Image size = 1584*1224
-        # zoom = 4 ---> 4 * Default Resolution (text is clear, image text is barely readable) = filesize large
-        # zoom = 8 ---> 8 * Default Resolution (text is clear, image text is readable) = filesize large
-        zoom_x = 2
-        zoom_y = 2
-        # The zoom factor is equal to 2 in order to make text clear
-        # Pre-rotate is to rotate if needed.
-        mat = fitz.Matrix(zoom_x, zoom_y).preRotate(rotate)
-        # To captue a specific part of the PDF page
-        # rect = page.rect #page size
-        # mp = rect.tl + (rect.bl - (0.75)/zoom_x) #rectangular area 56 = 75/1.3333
-        # clip = fitz.Rect(mp,rect.br) #The area to capture
-        # pix = page.getPixmap(matrix=mat, alpha=False,clip=clip)
-        # Get a screen-shot of the PDF page
-        # Colorspace -> represents the color space of the pixmap (csRGB, csGRAY, csCMYK)
-        # alpha -> Transparancy indicator
-        pix = page.getPixmap(matrix=mat, alpha=False, colorspace="csGRAY")
-        # convert the screen-shot pix to numpy array
-        img = pix2np(pix)
-        # Erode image to omit or thin the boundaries of the bright area of the image
-        # We apply Erosion on binary images.
-        #kernel = np.ones((2,2) , np.uint8)
-        #img = cv2.erode(img,kernel,iterations=1)
-        upd_np_array, pg_readable_items, pg_matches, pg_total_confidence, pg_output_data \
-            = ocr_img(img=img, input_file=None, search_str=search_str, highlight_readable_text=highlight_readable_text  # False
-                      , action=action  # 'Redact'
-                      , show_comparison=show_comparison  # True
-                      , generate_output=generate_output  # False
-                      )
-        # Collects the statistics of the page
-        dfResult = dfResult.append({'page': (pg+1), 'page_readable_items': pg_readable_items,
-                                   'page_matches': pg_matches, 'page_total_confidence': pg_total_confidence}, ignore_index=True)
-        if generate_output:
-            pdfContent = save_page_content(
-                pdfContent=pdfContent, page_id=(pg+1), page_data=pg_output_data)
-        # Convert the numpy array to image object with mode = RGB
-        #upd_img = Image.fromarray(np.uint8(upd_np_array)).convert('RGB')
-        upd_img = Image.fromarray(upd_np_array[..., ::-1])
-        # Convert the image to byte array
-        upd_array = image_to_byte_array(upd_img)
-        # Get Page Size
-        """
-        #To check whether initial page is portrait or landscape
-        if page.rect.width > page.rect.height:
-            fmt = fitz.PaperRect("a4-1")
-        else:
-            fmt = fitz.PaperRect("a4")
-
-        #pno = -1 -> Insert after last page
-        pageo = pdfOut.newPage(pno = -1, width = fmt.width, height = fmt.height)
-        """
-        pageo = pdfOut.newPage(
-            pno=-1, width=page.rect.width, height=page.rect.height)
-        pageo.insertImage(page.rect, stream=upd_array)
-        #pageo.insertImage(page.rect, stream=upd_img.tobytes())
-        #pageo.showPDFpage(pageo.rect, pdfDoc, page.number)
-    content_file = None
-    if generate_output:
-        content_file = save_file_content(
-            pdfContent=pdfContent, input_file=input_file)
-    summary = {
-        "File": input_file, "Total pages": pdfIn.pageCount, 
-        "Processed pages": dfResult['page'].count(), "Total readable words": dfResult['page_readable_items'].sum(), 
-        "Total matches": dfResult['page_matches'].sum(), "Confidence score": dfResult['page_total_confidence'].mean(), 
-        "Output file": output_file, "Content file": content_file
-    }
-    # Printing Summary
-    print("## Summary ########################################################")
-    print("\n".join("{}:{}".format(i, j) for i, j in summary.items()))
-    print("\nPages Statistics:")
-    print(dfResult, sep='\n')
-    print("###################################################################")
-    pdfIn.close()
-    if output_file:
-        pdfOut.save(output_file)
-    pdfOut.close()
-
-def image_to_byte_array(image: Image):
-    """
-    Converts an image into a byte array
-    """
-    imgByteArr = BytesIO()
-    image.save(imgByteArr, format=image.format if image.format else 'JPEG')
-    imgByteArr = imgByteArr.getvalue()
-    return imgByteArr
-
-def ocr_file(**kwargs):
-    """Opens the input PDF File.
-    Opens a memory buffer for storing the output PDF file.
-    Creates a DataFrame for storing pages statistics
-    Iterates throughout the chosen pages of the input PDF file
-    Grabs a screen-shot of the selected PDF page.
-    Converts the screen-shot pix to a numpy array
-    Scans the grabbed screen-shot.
-    Collects the statistics of the screen-shot(page).
-    Saves the content of the screen-shot(page).
-    Adds the updated screen-shot (Highlighted, Redacted) to the output file.
-    Saves the whole content of the PDF file.
-    Saves the output PDF file if required.
-    Prints a summary to the console."""
-    input_file = kwargs.get('input_file')
-    output_file = kwargs.get('output_file')
-    search_str = kwargs.get('search_str')
-    pages = kwargs.get('pages')
-    highlight_readable_text = kwargs.get('highlight_readable_text')
-    action = kwargs.get('action')
-    show_comparison = kwargs.get('show_comparison')
-    generate_output = kwargs.get('generate_output')
-    # Opens the input PDF file
-    pdfIn = fitz.open(input_file)
-    # Opens a memory buffer for storing the output PDF file.
-    pdfOut = fitz.open()
-    # Creates an empty DataFrame for storing pages statistics
-    dfResult = pd.DataFrame(
-        columns=['page', 'page_readable_items', 'page_matches', 'page_total_confidence'])
-    # Creates an empty DataFrame for storing file content
-    if generate_output:
-        pdfContent = pd.DataFrame(columns=['page', 'line_id', 'line'])
-    # Iterate throughout the pages of the input file
-    for pg in range(pdfIn.pageCount):
-        if str(pages) != str(None):
-            if str(pg) not in str(pages):
-                continue
-        # Select a page
-        page = pdfIn[pg]
-        # Rotation angle
-        rotate = int(0)
-        # PDF Page is converted into a whole picture 1056*816 and then for each picture a screenshot is taken.
-        # zoom = 1.33333333 -----> Image size = 1056*816
-        # zoom = 2 ---> 2 * Default Resolution (text is clear, image text is hard to read)    = filesize small / Image size = 1584*1224
-        # zoom = 4 ---> 4 * Default Resolution (text is clear, image text is barely readable) = filesize large
-        # zoom = 8 ---> 8 * Default Resolution (text is clear, image text is readable) = filesize large
-        zoom_x = 2
-        zoom_y = 2
-        # The zoom factor is equal to 2 in order to make text clear
-        # Pre-rotate is to rotate if needed.
-        mat = fitz.Matrix(zoom_x, zoom_y).preRotate(rotate)
-        # To captue a specific part of the PDF page
-        # rect = page.rect #page size
-        # mp = rect.tl + (rect.bl - (0.75)/zoom_x) #rectangular area 56 = 75/1.3333
-        # clip = fitz.Rect(mp,rect.br) #The area to capture
-        # pix = page.getPixmap(matrix=mat, alpha=False,clip=clip)
-        # Get a screen-shot of the PDF page
-        # Colorspace -> represents the color space of the pixmap (csRGB, csGRAY, csCMYK)
-        # alpha -> Transparancy indicator
-        pix = page.getPixmap(matrix=mat, alpha=False, colorspace="csGRAY")
-        # convert the screen-shot pix to numpy array
-        img = pix2np(pix)
-        # Erode image to omit or thin the boundaries of the bright area of the image
-        # We apply Erosion on binary images.
-        #kernel = np.ones((2,2) , np.uint8)
-        #img = cv2.erode(img,kernel,iterations=1)
-        upd_np_array, pg_readable_items, pg_matches, pg_total_confidence, pg_output_data \
-            = ocr_img(img=img, input_file=None, search_str=search_str, highlight_readable_text=highlight_readable_text  # False
-                      , action=action  # 'Redact'
-                      , show_comparison=show_comparison  # True
-                      , generate_output=generate_output  # False
-                      )
-        # Collects the statistics of the page
-        dfResult = dfResult.append({'page': (pg+1), 'page_readable_items': pg_readable_items,
-                                   'page_matches': pg_matches, 'page_total_confidence': pg_total_confidence}, ignore_index=True)
-        if generate_output:
-            pdfContent = save_page_content(
-                pdfContent=pdfContent, page_id=(pg+1), page_data=pg_output_data)
-        # Convert the numpy array to image object with mode = RGB
-        #upd_img = Image.fromarray(np.uint8(upd_np_array)).convert('RGB')
-        upd_img = Image.fromarray(upd_np_array[..., ::-1])
-        # Convert the image to byte array
-        upd_array = image_to_byte_array(upd_img)
-        # Get Page Size
-        """
-        #To check whether initial page is portrait or landscape
-        if page.rect.width > page.rect.height:
-            fmt = fitz.PaperRect("a4-1")
-        else:
-            fmt = fitz.PaperRect("a4")
-
-        #pno = -1 -> Insert after last page
-        pageo = pdfOut.newPage(pno = -1, width = fmt.width, height = fmt.height)
-        """
-        pageo = pdfOut.newPage(
-            pno=-1, width=page.rect.width, height=page.rect.height)
-        pageo.insertImage(page.rect, stream=upd_array)
-        #pageo.insertImage(page.rect, stream=upd_img.tobytes())
-        #pageo.showPDFpage(pageo.rect, pdfDoc, page.number)
-    content_file = None
-    if generate_output:
-        content_file = save_file_content(
-            pdfContent=pdfContent, input_file=input_file)
-    summary = {
-        "File": input_file, "Total pages": pdfIn.pageCount, 
-        "Processed pages": dfResult['page'].count(), "Total readable words": dfResult['page_readable_items'].sum(), 
-        "Total matches": dfResult['page_matches'].sum(), "Confidence score": dfResult['page_total_confidence'].mean(), 
-        "Output file": output_file, "Content file": content_file
-    }
-    # Printing Summary
-    print("## Summary ########################################################")
-    print("\n".join("{}:{}".format(i, j) for i, j in summary.items()))
-    print("\nPages Statistics:")
-    print(dfResult, sep='\n')
-    print("###################################################################")
-    pdfIn.close()
-    if output_file:
-        pdfOut.save(output_file)
-    pdfOut.close()
 
 def ocr_folder(**kwargs):
     """Scans all PDF Files within a specified path"""
@@ -736,9 +505,9 @@ def parse_args():
     # To Porse The Command Line Arguments
     args = vars(parser.parse_args())
     # To Display The Command Line Arguments
-    print("## Command Arguments #################################################")
-    print("\n".join("{}:{}".format(i, j) for i, j in args.items()))
-    print("######################################################################")
+    # print("## Command Arguments #################################################")
+    # print("\n".join("{}:{}".format(i, j) for i, j in args.items()))
+    # print("######################################################################")
     return args
 
 
